@@ -260,6 +260,8 @@ const ImportEmployees = async (req, res) => {
             return res.status(400).json({ error: 'Invalid employees data' });
         }
 
+        console.log("SUPABASE_URL=", SUPABASE_URL);
+
         axios.post(`${SUPABASE_URL}/employeeList/quickbooks`, {
             data: employees,
             company_id: companyId,

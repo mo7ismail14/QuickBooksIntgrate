@@ -12,24 +12,38 @@ const {
     formatTimeForQuickBooks 
 } = require('../utils/time');
 
+// ✅ TOKEN FILE PATH - Single file in root directory
+const TOKEN_FILE = path.join(__dirname, '..', 'tokens.json');
 
 // ✅ Load tokens on startup
 let tokens = {};
 
+function loadTokens() {
+    try {
+        if (fs.existsSync(TOKEN_FILE)) {
+            const tokenData = fs.readFileSync(TOKEN_FILE, 'utf8');
+            tokens = JSON.parse(tokenData);
+            console.log('✅ Tokens loaded from file');
+            console.log('Token expires at:', new Date(tokens.expires_at).toISOString());
+        } else {
+            console.log('⚠️ No existing tokens found - authentication required');
+        }
+    } catch (error) {
+        console.error('❌ Error loading tokens:', error);
+        tokens = {};
+    }
+}
 
-// ✅ Save tokens function
+// Load tokens when service starts
+loadTokens();
+
+// ✅ Save tokens function - overwrites single file
 function saveTokens(newTokens) {
     tokens = newTokens;
     try {
-        // Ensure directory exists
-        const filePath = path.resolve(__dirname, '..', 'JsonToken', `tokens_${new Date().getTime()}.json`);
-        const dir = path.dirname(filePath);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-        
-        fs.writeFileSync(filePath, JSON.stringify(tokens, null, 2));
-        console.log('✅ Tokens saved to file');
+        fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2));
+        console.log('✅ Tokens saved to file:', TOKEN_FILE);
+        console.log('Token will expire at:', new Date(tokens.expires_at).toISOString());
     } catch (error) {
         console.error('❌ Error saving tokens:', error);
     }
@@ -46,6 +60,13 @@ async function getValidToken() {
     if (Date.now() >= tokens.expires_at) {
         console.log('🔄 Token expired, refreshing...');
         try {
+            // Set the current tokens in the client before refreshing
+            oauthClient.setToken({
+                access_token: tokens.access_token,
+                refresh_token: tokens.refresh_token,
+                realmId: tokens.realmId
+            });
+            
             const authResponse = await oauthClient.refresh();
             const newTokens = {
                 access_token: authResponse.token.access_token,
@@ -53,7 +74,7 @@ async function getValidToken() {
                 realmId: tokens.realmId,
                 expires_at: Date.now() + (authResponse.token.expires_in * 1000)
             };
-            saveTokens(newTokens); // ✅ Save refreshed tokens
+            saveTokens(newTokens);
             console.log('✅ Token refreshed successfully');
         } catch (error) {
             console.error('❌ Token refresh failed:', error);
@@ -95,7 +116,7 @@ const OAuthCallbackHandler = async (req, res) => {
             expires_at: Date.now() + (authResponse.token.expires_in * 1000)
         };
 
-        saveTokens(newTokens); // ✅ Save to file
+        saveTokens(newTokens);
         console.log('✅ OAuth callback successful, tokens saved');
 
         res.sendFile('quickbooks-success.html', { root: './public' });
@@ -297,7 +318,8 @@ const CheckConnectionStatus = async (req, res) => {
         const isConnected = tokens.access_token && Date.now() < tokens.expires_at;
         res.json({ 
             connected: isConnected,
-            expiresAt: tokens.expires_at ? new Date(tokens.expires_at).toISOString() : null
+            expiresAt: tokens.expires_at ? new Date(tokens.expires_at).toISOString() : null,
+            realmId: tokens.realmId || null
         });
     } catch (error) {
         res.json({ connected: false });
@@ -309,6 +331,13 @@ const DisconnectQuickBooks = async (req, res) => {
     try {
         await oauthClient.revoke();
         tokens = {};
+        
+        // Delete token file
+        if (fs.existsSync(TOKEN_FILE)) {
+            fs.unlinkSync(TOKEN_FILE);
+            console.log('✅ Token file deleted');
+        }
+        
         res.json({ success: true, message: 'Disconnected from QuickBooks' });
     } catch (error) {
         console.error('Error disconnecting:', error);

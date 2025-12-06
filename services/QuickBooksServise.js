@@ -3,9 +3,8 @@ const fs = require("fs");
 const axios = require('axios');
 const path = require('path');
 
-
 const oauthClient = require("./qbClient");
-const {parsePhoneNumber} = require('../utils/phoneNumber')
+const {parsePhoneNumber} = require('../utils/phoneNumber');
 const { 
     calculateHours, 
     formatTime, 
@@ -13,23 +12,64 @@ const {
     formatTimeForQuickBooks 
 } = require('../utils/time');
 
+// ✅ TOKEN FILE IN ROOT DIRECTORY
+const TOKEN_FILE = path.join(__dirname, '..', '..', 'tokens.json');
 
-// Store tokens (In production, use database)
-let tokens = {}
+// ✅ Load tokens on startup
+let tokens = {};
+try {
+    if (fs.existsSync(TOKEN_FILE)) {
+        const tokenData = fs.readFileSync(TOKEN_FILE, 'utf8');
+        tokens = JSON.parse(tokenData);
+        console.log('✅ Tokens loaded from file');
+    } else {
+        console.log('⚠️ No existing tokens found');
+    }
+} catch (error) {
+    console.error('❌ Error loading tokens:', error);
+    tokens = {};
+}
 
-// 3. Refresh Token if Expired
+// ✅ Save tokens function
+function saveTokens(newTokens) {
+    tokens = newTokens;
+    try {
+        // Ensure directory exists
+        const dir = path.dirname(TOKEN_FILE);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        
+        fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2));
+        console.log('✅ Tokens saved to file');
+    } catch (error) {
+        console.error('❌ Error saving tokens:', error);
+    }
+}
+
+// ✅ Refresh Token if Expired
 async function getValidToken() {
+    // Check if tokens exist
+    if (!tokens.access_token) {
+        throw new Error('Not authenticated with QuickBooks. Please visit /api/quickbooks/auth');
+    }
+
+    // Check if token is expired
     if (Date.now() >= tokens.expires_at) {
+        console.log('🔄 Token expired, refreshing...');
         try {
             const authResponse = await oauthClient.refresh();
-            tokens = {
+            const newTokens = {
                 access_token: authResponse.token.access_token,
                 refresh_token: authResponse.token.refresh_token,
                 realmId: tokens.realmId,
                 expires_at: Date.now() + (authResponse.token.expires_in * 1000)
             };
+            saveTokens(newTokens); // ✅ Save refreshed tokens
+            console.log('✅ Token refreshed successfully');
         } catch (error) {
-            throw new Error('Token refresh failed');
+            console.error('❌ Token refresh failed:', error);
+            throw new Error('Token refresh failed. Please re-authenticate.');
         }
     }
     return tokens;
@@ -54,30 +94,30 @@ const CheckAuth = (req, res) => {
     }
 }
 
-// callback handler
+// ✅ Updated callback handler with token saving
 const OAuthCallbackHandler = async (req, res) => {
     try {
         const parseRedirect = req.url;
         const authResponse = await oauthClient.createToken(parseRedirect);
 
-        // Store tokens (use database in production)
-        tokens = {
+        const newTokens = {
             access_token: authResponse.token.access_token,
             refresh_token: authResponse.token.refresh_token,
             realmId: authResponse.token.realmId,
             expires_at: Date.now() + (authResponse.token.expires_in * 1000)
         };
 
-        // Serve the success HTML file
+        saveTokens(newTokens); // ✅ Save to file
+        console.log('✅ OAuth callback successful, tokens saved');
+
         res.sendFile('quickbooks-success.html', { root: './public' });
     } catch (error) {
-        console.error('Error in callback:', error);
-        // Redirect to error page with error message as query param
+        console.error('❌ Error in callback:', error);
         res.redirect(`/quickbooks-error.html?error=${encodeURIComponent(error.message)}`);
     }
 } 
 
-//Fetch Employees from QuickBooks
+// Fetch Employees from QuickBooks
 const GetEmployeesQuickBooks = async (req, res) => {
     try {
         const validTokens = await getValidToken();
@@ -112,21 +152,19 @@ const GetEmployeesQuickBooks = async (req, res) => {
                 email: employee?.PrimaryEmailAddr?.Address || null,
                 phone_number: phoneNumber || null,
                 phone_code: countryCode || null,
-                quickbooks_id: employee?.Id || null,  // ✅ ADD THIS
-                sync_to_quickbooks: true               // ✅ ADD THIS
+                quickbooks_id: employee?.Id || null,
+                sync_to_quickbooks: true
             }
         });
 
         // Ensure the file is saved in the root-level JsonFiles folder
         const filePath = path.resolve(__dirname, '..', 'JsonFiles', `employees_${new Date().getTime()}.json`);
         
-        // Ensure the directory exists, if not, create it
-        const dir = path.dirname(filePath); // Get directory from file path
+        const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true }); // Create the directory structure
+            fs.mkdirSync(dir, { recursive: true });
         }
 
-        // Write the employees data to the JSON file
         fs.writeFileSync(filePath, JSON.stringify(employees, null, 2));
 
         res.json({
@@ -136,7 +174,7 @@ const GetEmployeesQuickBooks = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error fetching employees:', error.response?.data || error);
+        console.error('Error fetching employees:', error.response?.data || error.message);
         res.status(500).json({ 
             error: 'Failed to fetch employees from QuickBooks',
             details: error.response?.data || error.message
@@ -153,7 +191,6 @@ const ImportEmployees = async (req, res) => {
         console.log("companyId", companyId);
         console.log("employees", employees);
 
-        // Validate data
         if (!employees || !Array.isArray(employees)) {
             return res.status(400).json({ error: 'Invalid employees data' });
         }
@@ -188,7 +225,6 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             companyId
         } = req.body;
 
-        // Validate required fields
         if (!quickbooksId || !clockInTime || !clockOutTime) {
             return res.status(400).json({
                 error: 'Missing required fields: quickbooksId, clockInTime, clockOutTime'
@@ -202,13 +238,11 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             ? 'https://sandbox-quickbooks.api.intuit.com'
             : 'https://quickbooks.api.intuit.com';
 
-        // Format times correctly for QuickBooks
         const formattedDate = date || formatDateForQuickBooks(clockInTime);
         const formattedStartTime = formatTimeForQuickBooks(clockInTime);
         const formattedEndTime = formatTimeForQuickBooks(clockOutTime);
         const hours = totalHours || calculateHours(clockInTime, clockOutTime);
 
-        // Create TimeActivity in QuickBooks
         const timeActivityData = {
             NameOf: "Employee",
             EmployeeRef: {
@@ -223,7 +257,6 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
 
         console.log('Sending to QuickBooks:', timeActivityData);
 
-        // Post TimeActivity to QuickBooks
         const response = await axios.post(
             `${baseUrl}/v3/company/${realmId}/timeactivity`,
             timeActivityData,
@@ -237,13 +270,11 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             }
         );
 
-        // Ensure JsonFiles directory exists
         const filePath = path.resolve(__dirname, '..', 'JsonFiles');
         if (!fs.existsSync(filePath)) {
             fs.mkdirSync(filePath, { recursive: true });
         }
 
-        // Save to JSON file for logging
         fs.writeFileSync(
             path.join(filePath, `timeactivity_${employeeId}_${new Date().getTime()}.json`),
             JSON.stringify(response.data, null, 2)
@@ -272,12 +303,14 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
     }
 }
 
-
-//  Check Connection Status
+// Check Connection Status
 const CheckConnectionStatus = async (req, res) => {
     try {
         const isConnected = tokens.access_token && Date.now() < tokens.expires_at;
-        res.json({ connected: isConnected });
+        res.json({ 
+            connected: isConnected,
+            expiresAt: tokens.expires_at ? new Date(tokens.expires_at).toISOString() : null
+        });
     } catch (error) {
         res.json({ connected: false });
     }
@@ -288,14 +321,19 @@ const DisconnectQuickBooks = async (req, res) => {
     try {
         await oauthClient.revoke();
         tokens = {};
+        
+        // Delete token file
+        if (fs.existsSync(TOKEN_FILE)) {
+            fs.unlinkSync(TOKEN_FILE);
+            console.log('✅ Token file deleted');
+        }
+        
         res.json({ success: true, message: 'Disconnected from QuickBooks' });
     } catch (error) {
         console.error('Error disconnecting:', error);
         res.status(500).json({ error: 'Failed to disconnect' });
     }
 }
-
-
 
 module.exports = {
     CheckAuth,
@@ -305,4 +343,4 @@ module.exports = {
     CheckConnectionStatus,
     DisconnectQuickBooks,
     UpdateEmployeeWorkingHours
-}
+};

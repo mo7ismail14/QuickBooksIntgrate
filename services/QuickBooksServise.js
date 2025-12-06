@@ -262,7 +262,7 @@ const ImportEmployees = async (req, res) => {
 
         console.log("SUPABASE_URL=", SUPABASE_URL);
 
-        axios.post(`${SUPABASE_URL}/employeeList/quickbooks`, {
+        await axios.post(`${SUPABASE_URL}/employeeList/quickbooks`, {
             data: employees,
             company_id: companyId,
         });

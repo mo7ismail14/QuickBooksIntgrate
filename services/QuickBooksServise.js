@@ -1,7 +1,5 @@
 const OAuthClient = require('intuit-oauth');
-const fs = require("fs");
 const axios = require('axios');
-const path = require('path');
 
 const oauthClient = require("./qbClient");
 const {parsePhoneNumber} = require('../utils/phoneNumber');
@@ -12,89 +10,97 @@ const {
     formatTimeForQuickBooks 
 } = require('../utils/time');
 
-// ✅ TOKEN FILE PATH - Single file in root directory
-const TOKEN_FILE = path.join(__dirname, '..', 'token.json');
+const SUPABASE_URL = process.env.supabaseUrl;
 
-// ✅ Read tokens from file
-function getTokensFromFile() {
+// ✅ Get tokens from Supabase
+async function getTokensFromSupabase(companyId) {
     try {
-        if (fs.existsSync(TOKEN_FILE)) {
-            const tokenData = fs.readFileSync(TOKEN_FILE, 'utf8');
-            const tokens = JSON.parse(tokenData);
-            console.log('✅ Tokens loaded from file');
-            return tokens;
-        } else {
-            console.log('⚠️ No token file found');
-            return null;
+        console.log("compay_id",companyId);
+        
+        const response = await axios.get(`${SUPABASE_URL}/quickbooks/tokens/${companyId}`);
+
+        if (response.data?.success && response.data?.data) {
+            console.log('✅ Tokens loaded from Supabase');
+            console.log("data====",response?.data?.data);
+            return response?.data?.data;
         }
+        
+        console.log('⚠️ No tokens found in Supabase');
+        return null;
     } catch (error) {
-        console.error('❌ Error reading tokens:', error);
+        console.error('❌ Error reading tokens from Supabase:', error.message);
         return null;
     }
 }
 
-// ✅ Save tokens to file
-function saveTokensToFile(tokens) {
+// ✅ Save tokens to Supabase
+async function saveTokensToSupabase(companyId, tokens, userId = null) {
     try {
-        // Ensure directory exists
-        const dir = path.dirname(TOKEN_FILE);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
+        const response = await axios.post(`${SUPABASE_URL}/quickbooks/tokens`, {
+            company_id: companyId,
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            realm_id: tokens.realmId,
+            expires_at: new Date(tokens.expires_at).toISOString(),
+            user_id: userId
+        });
         
-        fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2));
-        console.log('✅ Tokens saved to:', TOKEN_FILE);
-        console.log('Token expires at:', new Date(tokens.expires_at).toISOString());
-        return true;
+        console.log('✅ Tokens saved to Supabase');
+        return response.data?.success || true;
     } catch (error) {
-        console.error('❌ Error saving tokens:', error);
+        console.error('❌ Error saving tokens to Supabase:', error.response?.data || error.message);
         return false;
     }
 }
 
-// ✅ Delete/Empty token file
-function deleteTokenFile() {
+// ✅ Update tokens in Supabase
+async function updateTokensInSupabase(companyId, tokens, userId = null) {
     try {
-        if (fs.existsSync(TOKEN_FILE)) {
-            fs.unlinkSync(TOKEN_FILE);
-            console.log('✅ Token file deleted');
-        }
-        return true;
+        const response = await axios.put(`${SUPABASE_URL}/quickbooks/tokens/${companyId}`, {
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expires_at: new Date(tokens.expires_at).toISOString(),
+            user_id: userId
+        });
+        
+        console.log('✅ Tokens updated in Supabase');
+        return response.data?.success || true;
     } catch (error) {
-        console.error('❌ Error deleting token file:', error);
+        console.error('❌ Error updating tokens in Supabase:', error.response?.data || error.message);
         return false;
     }
 }
 
-// ✅ Get valid token (read from file and refresh if needed)
-async function getValidToken() {
-    let tokens = getTokensFromFile();
+// ✅ Get valid token (with refresh)
+async function getValidToken(companyId) {
+    let tokens = await getTokensFromSupabase(companyId);
     
-    // Check if tokens exist
     if (!tokens || !tokens.access_token) {
         throw new Error('Not authenticated with QuickBooks. Please visit /api/quickbooks/auth');
     }
 
+    const expiresAt = new Date(tokens.expires_at).getTime();
+    const now = Date.now();
+
     // Check if token is expired
-    if (Date.now() >= tokens.expires_at) {
+    if (now >= expiresAt) {
         console.log('🔄 Token expired, refreshing...');
         try {
-            // Set the current tokens in the client before refreshing
             oauthClient.setToken({
                 access_token: tokens.access_token,
                 refresh_token: tokens.refresh_token,
-                realmId: tokens.realmId
+                realmId: tokens.realm_id
             });
             
             const authResponse = await oauthClient.refresh();
             const newTokens = {
                 access_token: authResponse.token.access_token,
                 refresh_token: authResponse.token.refresh_token,
-                realmId: tokens.realmId,
+                realmId: tokens.realm_id,
                 expires_at: Date.now() + (authResponse.token.expires_in * 1000)
             };
             
-            saveTokensToFile(newTokens);
+            await updateTokensInSupabase(companyId, newTokens);
             console.log('✅ Token refreshed successfully');
             return newTokens;
         } catch (error) {
@@ -103,13 +109,20 @@ async function getValidToken() {
         }
     }
     
-    return tokens;
+    return {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        realmId: tokens.realm_id,
+        expires_at: expiresAt
+    };
 }
 
 const CheckAuth = (req, res) => {
     try {
         const { scopes } = OAuthClient;
+        const { company_id, user_id } = req.query;
 
+        // Add company_id and user_id to state for callback
         const authUrl = oauthClient.authorizeUri({
             scope: [
                 scopes.Accounting,
@@ -117,7 +130,9 @@ const CheckAuth = (req, res) => {
                 scopes.OpenId,
                 scopes.Profile,
             ],
+            state: JSON.stringify({ company_id, user_id }) // Pass data through state
         });
+        
         res.json({ authUrl: authUrl });
     } catch (error) {
         console.error('Error generating auth URL:', error);
@@ -125,7 +140,7 @@ const CheckAuth = (req, res) => {
     }
 }
 
-// ✅ OAuth Callback - Save tokens to file
+// ✅ OAuth Callback - Save tokens to Supabase
 const OAuthCallbackHandler = async (req, res) => {
     try {
         const parseRedirect = req.url;
@@ -138,31 +153,58 @@ const OAuthCallbackHandler = async (req, res) => {
             expires_at: Date.now() + (authResponse.token.expires_in * 1000)
         };
 
-        const saved = saveTokensToFile(newTokens);
+        // Get company_id and user_id from state
+        let companyId, userId;
+        try {
+            const state = JSON.parse(authResponse.token.state || '{}');
+            companyId = state.company_id;
+            userId = state.user_id;
+        } catch (e) {
+            console.error('Error parsing state:', e);
+        }
+
+        // Fallback to query params if state is not available
+        if (!companyId) {
+            companyId = req.query.company_id;
+            userId = req.query.user_id;
+        }
+
+        if (!companyId) {
+            throw new Error('company_id is required');
+        }
+
+        const saved = await saveTokensToSupabase(companyId, newTokens, userId);
         
         if (saved) {
-            console.log('✅ OAuth callback successful, tokens saved');
+            console.log('✅ OAuth callback successful, tokens saved to Supabase');
+            // Send success message to parent window
             res.sendFile('quickbooks-success.html', { root: './public' });
         } else {
             throw new Error('Failed to save tokens');
         }
     } catch (error) {
         console.error('❌ Error in callback:', error);
+        // Send error message to parent window
         res.redirect(`/quickbooks-error.html?error=${encodeURIComponent(error.message)}`);
     }
-} 
+}
 
-// ✅ Fetch Employees - Read tokens from file
+// ✅ Fetch Employees
 const GetEmployeesQuickBooks = async (req, res) => {
     try {
-        console.log('📂 Reading tokens from file...');
-        const validTokens = await getValidToken();
+        const companyId = req.query.company_id || req.body?.company_id;
+        
+        if (!companyId) {
+            return res.status(400).json({ error: 'company_id is required' });
+        }
+
+        console.log('📂 Reading tokens from Supabase for company:', companyId);
+        const validTokens = await getValidToken(companyId);
         
         console.log('✅ Valid tokens obtained');
-        const companyId = validTokens.realmId;
         const url = `${oauthClient.environment === 'sandbox' 
             ? 'https://sandbox-quickbooks.api.intuit.com' 
-            : 'https://quickbooks.api.intuit.com'}/v3/company/${companyId}/query`;
+            : 'https://quickbooks.api.intuit.com'}/v3/company/${validTokens.realmId}/query`;
 
         const query = "SELECT * FROM Employee";
         
@@ -179,7 +221,6 @@ const GetEmployeesQuickBooks = async (req, res) => {
         const employees = response.data.QueryResponse.Employee || [];
         console.log(`✅ Found ${employees.length} employees`);
         
-        // Map Data for employees
         const mappedEmployees = employees.map((employee) => {
             const phoneData = parsePhoneNumber(employee.PrimaryPhone?.FreeFormNumber);
             const phoneNumber = phoneData ? phoneData.number : null;
@@ -196,14 +237,6 @@ const GetEmployeesQuickBooks = async (req, res) => {
             }
         });
 
-        // Save to JsonFiles folder for logging
-        const filePath = path.resolve(__dirname, '..', 'JsonFiles', `employees_${new Date().getTime()}.json`);
-        const dir = path.dirname(filePath);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-        fs.writeFileSync(filePath, JSON.stringify(employees, null, 2));
-
         res.json({
             success: true,
             employees: mappedEmployees,
@@ -219,20 +252,15 @@ const GetEmployeesQuickBooks = async (req, res) => {
     }
 }
 
-// Import Employees to Your Database
 const ImportEmployees = async (req, res) => {
     try {
         const { employees, companyId } = req.body;
-        const endPointSupabase = process.env.supabaseUrl
-
-        console.log("companyId", companyId);
-        console.log("employees", employees);
 
         if (!employees || !Array.isArray(employees)) {
             return res.status(400).json({ error: 'Invalid employees data' });
         }
 
-        axios.post(`${endPointSupabase}/employeeList/quickbooks`, {
+        axios.post(`${SUPABASE_URL}/employeeList/quickbooks`, {
             data: employees,
             company_id: companyId,
         });
@@ -240,7 +268,7 @@ const ImportEmployees = async (req, res) => {
         res.json({
             success: true,
             imported: employees.length,
-            message: "Employees in Process of Importing will Arrive Notification After Insert It"
+            message: "Employees in Process of Importing"
         });
 
     } catch (error) {
@@ -249,7 +277,6 @@ const ImportEmployees = async (req, res) => {
     }
 }
 
-// Update Employee Working Hours (Clock Out)
 const UpdateEmployeeWorkingHours = async (req, res) => {
     try {
         const {
@@ -262,15 +289,13 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             companyId
         } = req.body;
 
-        if (!quickbooksId || !clockInTime || !clockOutTime) {
+        if (!quickbooksId || !clockInTime || !clockOutTime || !companyId) {
             return res.status(400).json({
-                error: 'Missing required fields: quickbooksId, clockInTime, clockOutTime'
+                error: 'Missing required fields'
             });
         }
 
-        const validTokens = await getValidToken();
-        const realmId = validTokens.realmId;
-
+        const validTokens = await getValidToken(companyId);
         const baseUrl = oauthClient.environment === 'sandbox'
             ? 'https://sandbox-quickbooks.api.intuit.com'
             : 'https://quickbooks.api.intuit.com';
@@ -282,20 +307,16 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
 
         const timeActivityData = {
             NameOf: "Employee",
-            EmployeeRef: {
-                value: quickbooksId
-            },
+            EmployeeRef: { value: quickbooksId },
             TxnDate: formattedDate,
             StartTime: formattedStartTime,
             EndTime: formattedEndTime,
             Hours: hours,
-            Description: `Clock In: ${formatTime(clockInTime)} - Clock Out: ${formatTime(clockOutTime)} | Employee ID: ${employeeId}`
+            Description: `Clock In: ${formatTime(clockInTime)} - Clock Out: ${formatTime(clockOutTime)}`
         };
 
-        console.log('Sending to QuickBooks:', timeActivityData);
-
         const response = await axios.post(
-            `${baseUrl}/v3/company/${realmId}/timeactivity`,
+            `${baseUrl}/v3/company/${validTokens.realmId}/timeactivity`,
             timeActivityData,
             {
                 headers: {
@@ -307,84 +328,69 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             }
         );
 
-        const filePath = path.resolve(__dirname, '..', 'JsonFiles');
-        if (!fs.existsSync(filePath)) {
-            fs.mkdirSync(filePath, { recursive: true });
-        }
-
-        fs.writeFileSync(
-            path.join(filePath, `timeactivity_${employeeId}_${new Date().getTime()}.json`),
-            JSON.stringify(response.data, null, 2)
-        );
-
         res.json({
             success: true,
             message: 'Working hours updated in QuickBooks',
-            data: {
-                timeActivityId: response.data.TimeActivity.Id,
-                employeeId: employeeId,
-                quickbooksId: quickbooksId,
-                hours: hours,
-                date: formattedDate,
-                startTime: formattedStartTime,
-                endTime: formattedEndTime
-            }
+            data: response.data.TimeActivity
         });
 
     } catch (error) {
         console.error('Error updating working hours:', error.response?.data || error);
         res.status(500).json({
-            error: 'Failed to update working hours in QuickBooks',
+            error: 'Failed to update working hours',
             details: error.response?.data || error.message
         });
     }
 }
 
-// ✅ Check Connection Status - Read from file
 const CheckConnectionStatus = async (req, res) => {
     try {
-        const tokens = getTokensFromFile();
+        const companyId = req.query.company_id;
         
-        if (!tokens || !tokens.access_token) {
-            return res.json({ connected: false });
+        if (!companyId) {
+            return res.status(400).json({ error: 'company_id is required' });
         }
-        
-        const isConnected = Date.now() < tokens.expires_at;
-        res.json({ 
-            connected: isConnected,
-            expiresAt: tokens.expires_at ? new Date(tokens.expires_at).toISOString() : null,
-            realmId: tokens.realmId || null
-        });
+
+        const response = await axios.get(`${SUPABASE_URL}/quickbooks/status/${companyId}`);
+        res.json(response.data);
     } catch (error) {
+        console.error('Error checking status:', error.message);
         res.json({ connected: false });
     }
 }
 
-// ✅ Disconnect QuickBooks - Delete token file
 const DisconnectQuickBooks = async (req, res) => {
     try {
-        const tokens = getTokensFromFile();
+        const { companyId, userId } = req.body;
+        
+        if (!companyId) {
+            return res.status(400).json({ error: 'company_id is required' });
+        }
+
+        const tokens = await getTokensFromSupabase(companyId);
         
         if (tokens && tokens.access_token) {
-            // Set token in client before revoking
             oauthClient.setToken({
                 access_token: tokens.access_token,
                 refresh_token: tokens.refresh_token,
-                realmId: tokens.realmId
+                realmId: tokens.realm_id
             });
             
-            await oauthClient.revoke();
+            try {
+                await oauthClient.revoke();
+            } catch (revokeError) {
+                console.error('Error revoking token:', revokeError);
+            }
         }
-        
-        // Delete the token file
-        deleteTokenFile();
+
+        await axios.delete(`${SUPABASE_URL}/quickbooks/tokens/${companyId}`, {
+            data: { user_id: userId }
+        });
         
         res.json({ success: true, message: 'Disconnected from QuickBooks' });
     } catch (error) {
         console.error('Error disconnecting:', error);
-        // Even if revoke fails, delete the file
-        deleteTokenFile();
-        res.json({ success: true, message: 'Disconnected from QuickBooks (token file removed)' });
+        res.status(500).json({ error: 'Failed to disconnect' });
     }
 }
 

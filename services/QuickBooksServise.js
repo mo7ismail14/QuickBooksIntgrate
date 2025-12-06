@@ -12,35 +12,23 @@ const {
     formatTimeForQuickBooks 
 } = require('../utils/time');
 
-// ✅ TOKEN FILE IN ROOT DIRECTORY
-const TOKEN_FILE = path.join(__dirname, '..', '..', 'tokens.json');
 
 // ✅ Load tokens on startup
 let tokens = {};
-try {
-    if (fs.existsSync(TOKEN_FILE)) {
-        const tokenData = fs.readFileSync(TOKEN_FILE, 'utf8');
-        tokens = JSON.parse(tokenData);
-        console.log('✅ Tokens loaded from file');
-    } else {
-        console.log('⚠️ No existing tokens found');
-    }
-} catch (error) {
-    console.error('❌ Error loading tokens:', error);
-    tokens = {};
-}
+
 
 // ✅ Save tokens function
 function saveTokens(newTokens) {
     tokens = newTokens;
     try {
         // Ensure directory exists
-        const dir = path.dirname(TOKEN_FILE);
+        const filePath = path.resolve(__dirname, '..', 'JsonToken', `tokens_${new Date().getTime()}.json`);
+        const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
         
-        fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2));
+        fs.writeFileSync(filePath, JSON.stringify(tokens, null, 2));
         console.log('✅ Tokens saved to file');
     } catch (error) {
         console.error('❌ Error saving tokens:', error);
@@ -321,13 +309,6 @@ const DisconnectQuickBooks = async (req, res) => {
     try {
         await oauthClient.revoke();
         tokens = {};
-        
-        // Delete token file
-        if (fs.existsSync(TOKEN_FILE)) {
-            fs.unlinkSync(TOKEN_FILE);
-            console.log('✅ Token file deleted');
-        }
-        
         res.json({ success: true, message: 'Disconnected from QuickBooks' });
     } catch (error) {
         console.error('Error disconnecting:', error);

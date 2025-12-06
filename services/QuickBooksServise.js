@@ -13,46 +13,65 @@ const {
 } = require('../utils/time');
 
 // ✅ TOKEN FILE PATH - Single file in root directory
-const TOKEN_FILE = path.join(__dirname, '..', 'tokens.json');
+const TOKEN_FILE = path.join(__dirname, '..', 'token.json');
 
-// ✅ Load tokens on startup
-let tokens = {};
-
-function loadTokens() {
+// ✅ Read tokens from file
+function getTokensFromFile() {
     try {
         if (fs.existsSync(TOKEN_FILE)) {
             const tokenData = fs.readFileSync(TOKEN_FILE, 'utf8');
-            tokens = JSON.parse(tokenData);
+            const tokens = JSON.parse(tokenData);
             console.log('✅ Tokens loaded from file');
-            console.log('Token expires at:', new Date(tokens.expires_at).toISOString());
+            return tokens;
         } else {
-            console.log('⚠️ No existing tokens found - authentication required');
+            console.log('⚠️ No token file found');
+            return null;
         }
     } catch (error) {
-        console.error('❌ Error loading tokens:', error);
-        tokens = {};
+        console.error('❌ Error reading tokens:', error);
+        return null;
     }
 }
 
-// Load tokens when service starts
-loadTokens();
-
-// ✅ Save tokens function - overwrites single file
-function saveTokens(newTokens) {
-    tokens = newTokens;
+// ✅ Save tokens to file
+function saveTokensToFile(tokens) {
     try {
+        // Ensure directory exists
+        const dir = path.dirname(TOKEN_FILE);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        
         fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2));
-        console.log('✅ Tokens saved to file:', TOKEN_FILE);
-        console.log('Token will expire at:', new Date(tokens.expires_at).toISOString());
+        console.log('✅ Tokens saved to:', TOKEN_FILE);
+        console.log('Token expires at:', new Date(tokens.expires_at).toISOString());
+        return true;
     } catch (error) {
         console.error('❌ Error saving tokens:', error);
+        return false;
     }
 }
 
-// ✅ Refresh Token if Expired
+// ✅ Delete/Empty token file
+function deleteTokenFile() {
+    try {
+        if (fs.existsSync(TOKEN_FILE)) {
+            fs.unlinkSync(TOKEN_FILE);
+            console.log('✅ Token file deleted');
+        }
+        return true;
+    } catch (error) {
+        console.error('❌ Error deleting token file:', error);
+        return false;
+    }
+}
+
+// ✅ Get valid token (read from file and refresh if needed)
 async function getValidToken() {
+    let tokens = getTokensFromFile();
+    
     // Check if tokens exist
-    if (!tokens.access_token) {
+    if (!tokens || !tokens.access_token) {
         throw new Error('Not authenticated with QuickBooks. Please visit /api/quickbooks/auth');
     }
 
@@ -74,13 +93,16 @@ async function getValidToken() {
                 realmId: tokens.realmId,
                 expires_at: Date.now() + (authResponse.token.expires_in * 1000)
             };
-            saveTokens(newTokens);
+            
+            saveTokensToFile(newTokens);
             console.log('✅ Token refreshed successfully');
+            return newTokens;
         } catch (error) {
             console.error('❌ Token refresh failed:', error);
             throw new Error('Token refresh failed. Please re-authenticate.');
         }
     }
+    
     return tokens;
 }
 
@@ -103,7 +125,7 @@ const CheckAuth = (req, res) => {
     }
 }
 
-// ✅ Updated callback handler with token saving
+// ✅ OAuth Callback - Save tokens to file
 const OAuthCallbackHandler = async (req, res) => {
     try {
         const parseRedirect = req.url;
@@ -116,21 +138,27 @@ const OAuthCallbackHandler = async (req, res) => {
             expires_at: Date.now() + (authResponse.token.expires_in * 1000)
         };
 
-        saveTokens(newTokens);
-        console.log('✅ OAuth callback successful, tokens saved');
-
-        res.sendFile('quickbooks-success.html', { root: './public' });
+        const saved = saveTokensToFile(newTokens);
+        
+        if (saved) {
+            console.log('✅ OAuth callback successful, tokens saved');
+            res.sendFile('quickbooks-success.html', { root: './public' });
+        } else {
+            throw new Error('Failed to save tokens');
+        }
     } catch (error) {
         console.error('❌ Error in callback:', error);
         res.redirect(`/quickbooks-error.html?error=${encodeURIComponent(error.message)}`);
     }
 } 
 
-// Fetch Employees from QuickBooks
+// ✅ Fetch Employees - Read tokens from file
 const GetEmployeesQuickBooks = async (req, res) => {
     try {
+        console.log('📂 Reading tokens from file...');
         const validTokens = await getValidToken();
         
+        console.log('✅ Valid tokens obtained');
         const companyId = validTokens.realmId;
         const url = `${oauthClient.environment === 'sandbox' 
             ? 'https://sandbox-quickbooks.api.intuit.com' 
@@ -138,6 +166,7 @@ const GetEmployeesQuickBooks = async (req, res) => {
 
         const query = "SELECT * FROM Employee";
         
+        console.log('📡 Fetching employees from QuickBooks...');
         const response = await axios.get(url, {
             params: { query, minorversion: 65 },
             headers: {
@@ -148,6 +177,7 @@ const GetEmployeesQuickBooks = async (req, res) => {
         });
 
         const employees = response.data.QueryResponse.Employee || [];
+        console.log(`✅ Found ${employees.length} employees`);
         
         // Map Data for employees
         const mappedEmployees = employees.map((employee) => {
@@ -166,14 +196,12 @@ const GetEmployeesQuickBooks = async (req, res) => {
             }
         });
 
-        // Ensure the file is saved in the root-level JsonFiles folder
+        // Save to JsonFiles folder for logging
         const filePath = path.resolve(__dirname, '..', 'JsonFiles', `employees_${new Date().getTime()}.json`);
-        
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
-
         fs.writeFileSync(filePath, JSON.stringify(employees, null, 2));
 
         res.json({
@@ -183,10 +211,10 @@ const GetEmployeesQuickBooks = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error fetching employees:', error.response?.data || error.message);
+        console.error('❌ Error fetching employees:', error.message);
         res.status(500).json({ 
             error: 'Failed to fetch employees from QuickBooks',
-            details: error.response?.data || error.message
+            details: error.message
         });
     }
 }
@@ -312,10 +340,16 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
     }
 }
 
-// Check Connection Status
+// ✅ Check Connection Status - Read from file
 const CheckConnectionStatus = async (req, res) => {
     try {
-        const isConnected = tokens.access_token && Date.now() < tokens.expires_at;
+        const tokens = getTokensFromFile();
+        
+        if (!tokens || !tokens.access_token) {
+            return res.json({ connected: false });
+        }
+        
+        const isConnected = Date.now() < tokens.expires_at;
         res.json({ 
             connected: isConnected,
             expiresAt: tokens.expires_at ? new Date(tokens.expires_at).toISOString() : null,
@@ -326,22 +360,31 @@ const CheckConnectionStatus = async (req, res) => {
     }
 }
 
-// Disconnect QuickBooks
+// ✅ Disconnect QuickBooks - Delete token file
 const DisconnectQuickBooks = async (req, res) => {
     try {
-        await oauthClient.revoke();
-        tokens = {};
+        const tokens = getTokensFromFile();
         
-        // Delete token file
-        if (fs.existsSync(TOKEN_FILE)) {
-            fs.unlinkSync(TOKEN_FILE);
-            console.log('✅ Token file deleted');
+        if (tokens && tokens.access_token) {
+            // Set token in client before revoking
+            oauthClient.setToken({
+                access_token: tokens.access_token,
+                refresh_token: tokens.refresh_token,
+                realmId: tokens.realmId
+            });
+            
+            await oauthClient.revoke();
         }
+        
+        // Delete the token file
+        deleteTokenFile();
         
         res.json({ success: true, message: 'Disconnected from QuickBooks' });
     } catch (error) {
         console.error('Error disconnecting:', error);
-        res.status(500).json({ error: 'Failed to disconnect' });
+        // Even if revoke fails, delete the file
+        deleteTokenFile();
+        res.json({ success: true, message: 'Disconnected from QuickBooks (token file removed)' });
     }
 }
 

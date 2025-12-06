@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>QuickBooks Authorization</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .container {
+            text-align: center;
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .error-icon {
+            font-size: 60px;
+            color: #f44336;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin: 0 0 10px 0;
+        }
+
+        p {
+            color: #666;
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="error-icon">✗</div>
+        <h1>Authorization Failed</h1>
+        <p>This window will close automatically...</p>
+    </div>
+    <script>
+        // Send message to parent window
+        if (window.opener) {
+            window.opener.postMessage({
+                type: 'quickbooks_auth',
+                status: 'error',
+                error: '${error.message}'
+            }, '*');
+        }
+
+        // Close popup after a short delay
+        setTimeout(() => {
+            window.close();
+        }, 1500);
+    </script>
+</body>
+
+</html>

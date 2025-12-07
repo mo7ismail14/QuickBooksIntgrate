@@ -280,8 +280,12 @@ const ImportEmployees = async (req, res) => {
 }
 
 const UpdateEmployeeWorkingHours = async (req, res) => {
+    // ✅ Declare variables outside try block for catch access
+    let quickbooksId, clockInTime, clockOutTime, totalHours, date, companyId;
+    
     try {
-        const {
+        // Extract from request body
+        ({
             employeeId,
             quickbooksId,
             clockInTime,
@@ -289,13 +293,28 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             totalHours,
             date,
             companyId
-        } = req.body;
+        } = req.body);
 
+        // Validate required fields
         if (!quickbooksId || !clockInTime || !clockOutTime || !companyId) {
             return res.status(400).json({
-                error: 'Missing required fields'
+                error: 'Missing required fields',
+                received: {
+                    quickbooksId: !!quickbooksId,
+                    clockInTime: !!clockInTime,
+                    clockOutTime: !!clockOutTime,
+                    companyId: !!companyId
+                }
             });
         }
+
+        console.log('📋 Request data:', {
+            quickbooksId,
+            clockInTime,
+            clockOutTime,
+            date,
+            companyId
+        });
 
         const validTokens = await getValidToken(companyId);
         const baseUrl = oauthClient.environment === 'sandbox'
@@ -306,6 +325,13 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
         const formattedStartTime = formatTimeForQuickBooks(clockInTime);
         const formattedEndTime = formatTimeForQuickBooks(clockOutTime);
         const hours = totalHours || calculateHours(clockInTime, clockOutTime);
+
+        console.log('📊 Formatted data:', {
+            formattedDate,
+            formattedStartTime,
+            formattedEndTime,
+            hours
+        });
 
         // ✅ CORRECTED: Proper TimeActivity structure
         const timeActivityData = {
@@ -318,12 +344,11 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             EndTime: formattedEndTime,
             Hours: parseFloat(hours), // Ensure it's a number
             Description: `Clock In: ${formatTime(clockInTime)} - Clock Out: ${formatTime(clockOutTime)}`,
-            // ✅ Add these optional but recommended fields
             BillableStatus: "NotBillable",
             Taxable: false
         };
 
-        console.log('Sending TimeActivity data to QuickBooks:', JSON.stringify(timeActivityData, null, 2));
+        console.log('📤 Sending TimeActivity data to QuickBooks:', JSON.stringify(timeActivityData, null, 2));
 
         const response = await axios.post(
             `${baseUrl}/v3/company/${validTokens.realmId}/timeactivity`,
@@ -338,6 +363,8 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             }
         );
 
+        console.log('✅ TimeActivity created successfully:', response.data.TimeActivity);
+
         res.json({
             success: true,
             message: 'Working hours updated in QuickBooks',
@@ -345,21 +372,26 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error updating working hours:', error.response?.data || error);
+        console.error('❌ Error updating working hours:', error.response?.data || error);
         
-        // ✅ Better error details
-        const errorDetails = error.response?.data?.Fault?.Error?.[0] || error.message;
+        // ✅ Better error details - now variables are accessible
+        const errorDetails = error.response?.data?.Fault?.Error?.[0] || {
+            Message: error.message,
+            Detail: error.stack
+        };
+        
+        console.error('Error details:', JSON.stringify(errorDetails, null, 2));
         
         res.status(500).json({
             error: 'Failed to update working hours',
             details: errorDetails,
-            sentData: {
+            sentData: quickbooksId ? {
                 quickbooksId,
-                date: date || formatDateForQuickBooks(clockInTime),
-                startTime: formatTimeForQuickBooks(clockInTime),
-                endTime: formatTimeForQuickBooks(clockOutTime),
-                hours: totalHours || calculateHours(clockInTime, clockOutTime)
-            }
+                date: date || (clockInTime ? formatDateForQuickBooks(clockInTime) : null),
+                startTime: clockInTime ? formatTimeForQuickBooks(clockInTime) : null,
+                endTime: clockOutTime ? formatTimeForQuickBooks(clockOutTime) : null,
+                hours: totalHours || (clockInTime && clockOutTime ? calculateHours(clockInTime, clockOutTime) : null)
+            } : { message: 'Data not available' }
         });
     }
 }

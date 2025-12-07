@@ -10,7 +10,8 @@ const {
     CheckConnectionStatus,
     DisconnectQuickBooks,
     UpdateEmployeeWorkingHours,
-    ImportEmployees
+    ImportEmployees,
+    GetEmployeeTimeActivities
 } = require('../services/QuickBooksServise')
 
 
@@ -30,6 +31,9 @@ router.post('/import', ImportEmployees);
 
 // 5. Update Employee Working Hours (Clock Out)
 router.post('/update-working-hours', UpdateEmployeeWorkingHours);
+
+// 6. Update Employee Working Hours (Clock Out)
+router.post('/employee-time-activities', GetEmployeeTimeActivities);
 
 
 //  Check Connection Status

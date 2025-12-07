@@ -280,11 +280,9 @@ const ImportEmployees = async (req, res) => {
 }
 
 const UpdateEmployeeWorkingHours = async (req, res) => {
-    // ✅ Declare variables outside try block for catch access
     let quickbooksId, clockInTime, clockOutTime, totalHours, date, companyId;
-    
+
     try {
-        // Extract from request body
         ({
             employeeId,
             quickbooksId,
@@ -295,7 +293,6 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             companyId
         } = req.body);
 
-        // Validate required fields
         if (!quickbooksId || !clockInTime || !clockOutTime || !companyId) {
             return res.status(400).json({
                 error: 'Missing required fields',
@@ -313,7 +310,8 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             clockInTime,
             clockOutTime,
             date,
-            companyId
+            companyId,
+            totalHours
         });
 
         const validTokens = await getValidToken(companyId);
@@ -324,28 +322,30 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
         const formattedDate = date || formatDateForQuickBooks(clockInTime);
         const formattedStartTime = formatTimeForQuickBooks(clockInTime);
         const formattedEndTime = formatTimeForQuickBooks(clockOutTime);
-        const hours = totalHours || calculateHours(clockInTime, clockOutTime);
+
+        // ✅ Calculate hours as decimal (not string)
+        const hours = totalHours ? parseFloat(totalHours) : calculateHours(clockInTime, clockOutTime);
 
         console.log('📊 Formatted data:', {
             formattedDate,
             formattedStartTime,
             formattedEndTime,
-            hours
+            hours,
+            hoursType: typeof hours
         });
 
-        // ✅ CORRECTED: Proper TimeActivity structure
+        // ✅ MINIMAL TimeActivity structure - only required fields
         const timeActivityData = {
             NameOf: "Employee",
-            EmployeeRef: { 
-                value: quickbooksId.toString() // Ensure it's a string
+            EmployeeRef: {
+                value: quickbooksId.toString()
             },
             TxnDate: formattedDate,
             StartTime: formattedStartTime,
             EndTime: formattedEndTime,
-            Hours: parseFloat(hours), // Ensure it's a number
-            Description: `Clock In: ${formatTime(clockInTime)} - Clock Out: ${formatTime(clockOutTime)}`,
-            BillableStatus: "NotBillable",
-            Taxable: false
+            // ✅ Don't send Hours field - let QuickBooks calculate it
+            // Hours: hours,
+            Description: `Clock In: ${formatTime(clockInTime)} - Clock Out: ${formatTime(clockOutTime)}`
         };
 
         console.log('📤 Sending TimeActivity data to QuickBooks:', JSON.stringify(timeActivityData, null, 2));
@@ -372,16 +372,16 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Error updating working hours:', error.response?.data || error);
-        
-        // ✅ Better error details - now variables are accessible
+        console.error('❌ Full error:', error);
+        console.error('❌ Error response:', error.response?.data);
+
         const errorDetails = error.response?.data?.Fault?.Error?.[0] || {
             Message: error.message,
             Detail: error.stack
         };
-        
+
         console.error('Error details:', JSON.stringify(errorDetails, null, 2));
-        
+
         res.status(500).json({
             error: 'Failed to update working hours',
             details: errorDetails,

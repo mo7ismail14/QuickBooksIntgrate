@@ -33,7 +33,7 @@ router.post('/import', ImportEmployees);
 router.post('/update-working-hours', UpdateEmployeeWorkingHours);
 
 // 6. Update Employee Working Hours (Clock Out)
-router.post('/employee-time-activities', GetEmployeeTimeActivities);
+router.get('/employee-time-activities', GetEmployeeTimeActivities);
 
 
 //  Check Connection Status

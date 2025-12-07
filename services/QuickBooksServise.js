@@ -314,27 +314,63 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             totalHours
         });
 
+        // ✅ Parse and validate dates from Supabase format
+        function parseDateTime(timeValue, dateValue) {
+            // If it's already a full ISO timestamp
+            if (typeof timeValue === 'string' && timeValue.includes('T')) {
+                return new Date(timeValue);
+            }
+
+            // If it's just time (HH:MM:SS), combine with date
+            if (typeof timeValue === 'string' && dateValue) {
+                const combined = `${dateValue}T${timeValue}`;
+                return new Date(combined);
+            }
+
+            // Try parsing as is
+            return new Date(timeValue);
+        }
+
+        const clockInDate = parseDateTime(clockInTime, date);
+        const clockOutDate = parseDateTime(clockOutTime, date);
+
+        // ✅ Validate dates are valid
+        if (isNaN(clockInDate.getTime()) || isNaN(clockOutDate.getTime())) {
+            return res.status(400).json({
+                error: 'Invalid date/time values',
+                received: {
+                    clockInTime,
+                    clockOutTime,
+                    date,
+                    parsedClockIn: clockInDate.toString(),
+                    parsedClockOut: clockOutDate.toString()
+                }
+            });
+        }
+
+        console.log('✅ Parsed dates:', {
+            clockInDate: clockInDate.toISOString(),
+            clockOutDate: clockOutDate.toISOString()
+        });
+
         const validTokens = await getValidToken(companyId);
         const baseUrl = oauthClient.environment === 'sandbox'
             ? 'https://sandbox-quickbooks.api.intuit.com'
             : 'https://quickbooks.api.intuit.com';
 
-        const formattedDate = date || formatDateForQuickBooks(clockInTime);
-        const formattedStartTime = formatTimeForQuickBooks(clockInTime);
-        const formattedEndTime = formatTimeForQuickBooks(clockOutTime);
-
-        // ✅ Calculate hours as decimal (not string)
-        const hours = totalHours ? parseFloat(totalHours) : calculateHours(clockInTime, clockOutTime);
+        // ✅ Use parsed dates for formatting
+        const formattedDate = date || formatDateForQuickBooks(clockInDate);
+        const formattedStartTime = formatTimeForQuickBooks(clockInDate);
+        const formattedEndTime = formatTimeForQuickBooks(clockOutDate);
 
         console.log('📊 Formatted data:', {
             formattedDate,
             formattedStartTime,
             formattedEndTime,
-            hours,
-            hoursType: typeof hours
+            totalHours
         });
 
-        // ✅ MINIMAL TimeActivity structure - only required fields
+        // ✅ TimeActivity structure - let QuickBooks calculate hours
         const timeActivityData = {
             NameOf: "Employee",
             EmployeeRef: {
@@ -343,9 +379,7 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             TxnDate: formattedDate,
             StartTime: formattedStartTime,
             EndTime: formattedEndTime,
-            // ✅ Don't send Hours field - let QuickBooks calculate it
-            // Hours: hours,
-            Description: `Clock In: ${formatTime(clockInTime)} - Clock Out: ${formatTime(clockOutTime)}`
+            Description: `Clock In: ${clockInDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} - Clock Out: ${clockOutDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`
         };
 
         console.log('📤 Sending TimeActivity data to QuickBooks:', JSON.stringify(timeActivityData, null, 2));
@@ -385,13 +419,14 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
         res.status(500).json({
             error: 'Failed to update working hours',
             details: errorDetails,
-            sentData: quickbooksId ? {
+            receivedData: {
                 quickbooksId,
-                date: date || (clockInTime ? formatDateForQuickBooks(clockInTime) : null),
-                startTime: clockInTime ? formatTimeForQuickBooks(clockInTime) : null,
-                endTime: clockOutTime ? formatTimeForQuickBooks(clockOutTime) : null,
-                hours: totalHours || (clockInTime && clockOutTime ? calculateHours(clockInTime, clockOutTime) : null)
-            } : { message: 'Data not available' }
+                clockInTime,
+                clockOutTime,
+                date,
+                totalHours,
+                companyId
+            }
         });
     }
 }

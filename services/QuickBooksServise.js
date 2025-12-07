@@ -316,25 +316,19 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
 
         // ✅ Parse and validate dates from Supabase format
         function parseDateTime(timeValue, dateValue) {
-            // If it's already a full ISO timestamp
             if (typeof timeValue === 'string' && timeValue.includes('T')) {
                 return new Date(timeValue);
             }
-
-            // If it's just time (HH:MM:SS), combine with date
             if (typeof timeValue === 'string' && dateValue) {
                 const combined = `${dateValue}T${timeValue}`;
                 return new Date(combined);
             }
-
-            // Try parsing as is
             return new Date(timeValue);
         }
 
         const clockInDate = parseDateTime(clockInTime, date);
         const clockOutDate = parseDateTime(clockOutTime, date);
 
-        // ✅ Validate dates are valid
         if (isNaN(clockInDate.getTime()) || isNaN(clockOutDate.getTime())) {
             return res.status(400).json({
                 error: 'Invalid date/time values',
@@ -358,7 +352,6 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             ? 'https://sandbox-quickbooks.api.intuit.com'
             : 'https://quickbooks.api.intuit.com';
 
-        // ✅ Use parsed dates for formatting
         const formattedDate = date || formatDateForQuickBooks(clockInDate);
         const formattedStartTime = formatTimeForQuickBooks(clockInDate);
         const formattedEndTime = formatTimeForQuickBooks(clockOutDate);
@@ -370,16 +363,14 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             totalHours
         });
 
-        // ✅ TimeActivity structure - let QuickBooks calculate hours
+        // ✅ ABSOLUTE MINIMAL TimeActivity - only required fields
         const timeActivityData = {
-            NameOf: "Employee",
+            TxnDate: formattedDate,
             EmployeeRef: {
                 value: quickbooksId.toString()
             },
-            TxnDate: formattedDate,
             StartTime: formattedStartTime,
-            EndTime: formattedEndTime,
-            Description: `Clock In: ${clockInDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} - Clock Out: ${clockOutDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`
+            EndTime: formattedEndTime
         };
 
         console.log('📤 Sending TimeActivity data to QuickBooks:', JSON.stringify(timeActivityData, null, 2));

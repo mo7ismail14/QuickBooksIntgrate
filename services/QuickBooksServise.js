@@ -366,13 +366,13 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
         // ✅ ABSOLUTE MINIMAL TimeActivity - only required fields
         const timeActivityData = {
             TxnDate: formattedDate,
+            NameOf: "Employee",
             EmployeeRef: {
                 value: quickbooksId.toString()
             },
-            StartTime: formattedStartTime,
-            EndTime: formattedEndTime
+            StartTime: clockInDate.toISOString().split('.')[0],
+            EndTime: clockOutDate.toISOString().split('.')[0]
         };
-
         console.log('📤 Sending TimeActivity data to QuickBooks:', JSON.stringify(timeActivityData, null, 2));
 
         const response = await axios.post(

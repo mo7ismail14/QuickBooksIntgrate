@@ -307,15 +307,23 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
         const formattedEndTime = formatTimeForQuickBooks(clockOutTime);
         const hours = totalHours || calculateHours(clockInTime, clockOutTime);
 
+        // ✅ CORRECTED: Proper TimeActivity structure
         const timeActivityData = {
             NameOf: "Employee",
-            EmployeeRef: { value: quickbooksId },
+            EmployeeRef: { 
+                value: quickbooksId.toString() // Ensure it's a string
+            },
             TxnDate: formattedDate,
             StartTime: formattedStartTime,
             EndTime: formattedEndTime,
-            Hours: hours,
-            Description: `Clock In: ${formatTime(clockInTime)} - Clock Out: ${formatTime(clockOutTime)}`
+            Hours: parseFloat(hours), // Ensure it's a number
+            Description: `Clock In: ${formatTime(clockInTime)} - Clock Out: ${formatTime(clockOutTime)}`,
+            // ✅ Add these optional but recommended fields
+            BillableStatus: "NotBillable",
+            Taxable: false
         };
+
+        console.log('Sending TimeActivity data to QuickBooks:', JSON.stringify(timeActivityData, null, 2));
 
         const response = await axios.post(
             `${baseUrl}/v3/company/${validTokens.realmId}/timeactivity`,
@@ -338,9 +346,20 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
 
     } catch (error) {
         console.error('Error updating working hours:', error.response?.data || error);
+        
+        // ✅ Better error details
+        const errorDetails = error.response?.data?.Fault?.Error?.[0] || error.message;
+        
         res.status(500).json({
             error: 'Failed to update working hours',
-            details: error.response?.data || error.message
+            details: errorDetails,
+            sentData: {
+                quickbooksId,
+                date: date || formatDateForQuickBooks(clockInTime),
+                startTime: formatTimeForQuickBooks(clockInTime),
+                endTime: formatTimeForQuickBooks(clockOutTime),
+                hours: totalHours || calculateHours(clockInTime, clockOutTime)
+            }
         });
     }
 }

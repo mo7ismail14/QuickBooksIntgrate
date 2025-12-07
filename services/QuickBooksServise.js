@@ -345,6 +345,96 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
     }
 }
 
+// ✅ Get Time Activities for Specific Employee
+const GetEmployeeTimeActivities = async (req, res) => {
+    try {
+        const { companyId, quickbooksId, startDate, endDate } = req.query;
+
+        // Validate required fields
+        if (!companyId || !quickbooksId) {
+            return res.status(400).json({ 
+                error: 'company_id and quickbooksId are required' 
+            });
+        }
+
+        if (!startDate || !endDate) {
+            return res.status(400).json({ 
+                error: 'startDate and endDate are required',
+                format: 'YYYY-MM-DD'
+            });
+        }
+
+        console.log('📂 Reading tokens from Supabase for company:', companyId);
+        const validTokens = await getValidToken(companyId);
+        
+        console.log('✅ Valid tokens obtained');
+        const baseUrl = oauthClient.environment === 'sandbox'
+            ? 'https://sandbox-quickbooks.api.intuit.com'
+            : 'https://quickbooks.api.intuit.com';
+
+        const query = `SELECT * FROM TimeActivity WHERE EmployeeRef = '${quickbooksId}' AND TxnDate >= '${startDate}' AND TxnDate <= '${endDate}' ORDERBY TxnDate DESC`;
+
+        console.log('📡 Fetching employee time activities from QuickBooks...');
+
+        const response = await axios.get(
+            `${baseUrl}/v3/company/${validTokens.realmId}/query`,
+            {
+                params: { query, minorversion: 65 },
+                headers: {
+                    'Authorization': `Bearer ${validTokens.access_token}`,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        const timeActivities = response.data.QueryResponse.TimeActivity || [];
+        console.log(`✅ Found ${timeActivities.length} time activities for employee`);
+        
+        // Calculate total hours
+        const totalHours = timeActivities.reduce((sum, activity) => {
+            return sum + (parseFloat(activity.Hours) || 0);
+        }, 0);
+
+        // Map activities
+        const mappedActivities = timeActivities.map((activity) => ({
+            id: activity.Id,
+            date: activity.TxnDate,
+            start_time: activity.StartTime,
+            end_time: activity.EndTime,
+            hours: activity.Hours,
+            description: activity.Description || null,
+            billable_status: activity.BillableStatus || null,
+            created_at: activity.MetaData?.CreateTime,
+            updated_at: activity.MetaData?.LastUpdatedTime
+        }));
+
+        res.json({
+            success: true,
+            employee: {
+                quickbooks_id: quickbooksId,
+                name: timeActivities[0]?.EmployeeRef?.name || null
+            },
+            data: mappedActivities,
+            summary: {
+                total_activities: mappedActivities.length,
+                total_hours: totalHours.toFixed(2),
+                date_range: {
+                    start: startDate,
+                    end: endDate
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching employee time activities:', error.response?.data || error.message);
+        res.status(500).json({
+            error: 'Failed to fetch employee time activities from QuickBooks',
+            details: error.response?.data || error.message
+        });
+    }
+}
+
 const CheckConnectionStatus = async (req, res) => {
     try {
         const companyId = req.query.company_id;
@@ -403,5 +493,6 @@ module.exports = {
     ImportEmployees,
     CheckConnectionStatus,
     DisconnectQuickBooks,
-    UpdateEmployeeWorkingHours
+    UpdateEmployeeWorkingHours,
+    GetEmployeeTimeActivities
 };

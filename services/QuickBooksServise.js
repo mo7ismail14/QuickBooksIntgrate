@@ -343,9 +343,9 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
         }
 
         function formatQBDate(date) {
-            return date
-                .toISOString()
-                .replace(/\.\d+Z$/, "Z"); // remove milliseconds but keep Z
+            // Ensure the correct timezone format
+            const formattedDate = date.toISOString().replace(/\.\d+Z$/, "Z");
+            return formattedDate;
         }
 
         console.log('✅ Parsed dates:', {
@@ -358,9 +358,9 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             ? 'https://sandbox-quickbooks.api.intuit.com'
             : 'https://quickbooks.api.intuit.com';
 
-        const formattedDate = date || formatDateForQuickBooks(clockInDate);
-        const formattedStartTime = formatTimeForQuickBooks(clockInDate);
-        const formattedEndTime = formatTimeForQuickBooks(clockOutDate);
+        const formattedDate = date || clockInDate.toISOString().split("T")[0]; // Ensure the date format
+        const formattedStartTime = formatQBDate(clockInDate);
+        const formattedEndTime = formatQBDate(clockOutDate);
 
         console.log('📊 Formatted data:', {
             formattedDate,
@@ -376,9 +376,10 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             EmployeeRef: {
                 value: quickbooksId.toString()
             },
-            StartTime: formatQBDate(clockInDate),
-            EndTime: formatQBDate(clockOutDate)
+            StartTime: formattedStartTime,
+            EndTime: formattedEndTime
         };
+
         console.log('📤 Sending TimeActivity data to QuickBooks:', JSON.stringify(timeActivityData, null, 2));
 
         const response = await axios.post(
@@ -426,7 +427,8 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             }
         });
     }
-}
+};
+
 
 // ✅ Get Time Activities for Specific Employee (CORRECTED)
 const GetEmployeeTimeActivities = async (req, res) => {

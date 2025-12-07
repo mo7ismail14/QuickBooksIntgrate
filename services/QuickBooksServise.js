@@ -342,6 +342,12 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             });
         }
 
+        function formatQBDate(date) {
+            return date
+                .toISOString()
+                .replace(/\.\d+Z$/, "Z"); // remove milliseconds but keep Z
+        }
+
         console.log('✅ Parsed dates:', {
             clockInDate: clockInDate.toISOString(),
             clockOutDate: clockOutDate.toISOString()
@@ -370,8 +376,8 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             EmployeeRef: {
                 value: quickbooksId.toString()
             },
-            StartTime: clockInDate.toISOString().split('.')[0],
-            EndTime: clockOutDate.toISOString().split('.')[0]
+            StartTime: formatQBDate(clockInDate),
+            EndTime: formatQBDate(clockOutDate)
         };
         console.log('📤 Sending TimeActivity data to QuickBooks:', JSON.stringify(timeActivityData, null, 2));
 

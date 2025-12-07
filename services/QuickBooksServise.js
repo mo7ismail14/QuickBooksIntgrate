@@ -345,7 +345,7 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
     }
 }
 
-// ✅ Get Time Activities for Specific Employee
+// ✅ Get Time Activities for Specific Employee (CORRECTED)
 const GetEmployeeTimeActivities = async (req, res) => {
     try {
         const { companyId, quickbooksId, startDate, endDate } = req.query;
@@ -372,9 +372,11 @@ const GetEmployeeTimeActivities = async (req, res) => {
             ? 'https://sandbox-quickbooks.api.intuit.com'
             : 'https://quickbooks.api.intuit.com';
 
-        const query = `SELECT * FROM TimeActivity WHERE EmployeeRef = '${quickbooksId}' AND TxnDate >= '${startDate}' AND TxnDate <= '${endDate}' ORDERBY TxnDate DESC`;
+        // ✅ CORRECTED QUERY - Get all TimeActivities in date range first
+        const query = `SELECT * FROM TimeActivity WHERE TxnDate >= '${startDate}' AND TxnDate <= '${endDate}' ORDERBY TxnDate DESC`;
 
         console.log('📡 Fetching employee time activities from QuickBooks...');
+        console.log('Query:', query);
 
         const response = await axios.get(
             `${baseUrl}/v3/company/${validTokens.realmId}/query`,
@@ -388,8 +390,15 @@ const GetEmployeeTimeActivities = async (req, res) => {
             }
         );
 
-        const timeActivities = response.data.QueryResponse.TimeActivity || [];
-        console.log(`✅ Found ${timeActivities.length} time activities for employee`);
+        const allTimeActivities = response.data.QueryResponse.TimeActivity || [];
+        console.log(`✅ Found ${allTimeActivities.length} total time activities`);
+        
+        // ✅ Filter by employee on the client side
+        const timeActivities = allTimeActivities.filter(activity => {
+            return activity.EmployeeRef?.value === quickbooksId;
+        });
+
+        console.log(`✅ Filtered to ${timeActivities.length} activities for employee ${quickbooksId}`);
         
         // Calculate total hours
         const totalHours = timeActivities.reduce((sum, activity) => {

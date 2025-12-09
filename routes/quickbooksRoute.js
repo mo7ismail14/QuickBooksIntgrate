@@ -11,7 +11,8 @@ const {
     DisconnectQuickBooks,
     UpdateEmployeeWorkingHours,
     ImportEmployees,
-    GetEmployeeTimeActivities
+    GetEmployeeTimeActivities,
+    DeleteEmployee
 } = require('../services/QuickBooksServise')
 
 
@@ -42,6 +43,6 @@ router.get('/status', CheckConnectionStatus);
 // Disconnect QuickBooks
 router.post('/disconnect', DisconnectQuickBooks);
 
-
+router.delete('/employee/:id/:companyId', DeleteEmployee);
 
 module.exports = router;

@@ -279,11 +279,10 @@ const ImportEmployees = async (req, res) => {
     }
 }
 
+// Update Employee Working Hours (Clock Out)
 const UpdateEmployeeWorkingHours = async (req, res) => {
-    let quickbooksId, clockInTime, clockOutTime, totalHours, date, companyId;
-
     try {
-        ({
+        const {
             employeeId,
             quickbooksId,
             clockInTime,
@@ -291,99 +290,46 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             totalHours,
             date,
             companyId
-        } = req.body);
+        } = req.body;
 
-        if (!quickbooksId || !clockInTime || !clockOutTime || !companyId) {
+        // Validate required fields
+        if (!quickbooksId || !clockInTime || !clockOutTime) {
             return res.status(400).json({
-                error: 'Missing required fields',
-                received: {
-                    quickbooksId: !!quickbooksId,
-                    clockInTime: !!clockInTime,
-                    clockOutTime: !!clockOutTime,
-                    companyId: !!companyId
-                }
+                error: 'Missing required fields: quickbooksId, clockInTime, clockOutTime'
             });
         }
 
-        console.log('📋 Request data:', {
-            quickbooksId,
-            clockInTime,
-            clockOutTime,
-            date,
-            companyId,
-            totalHours
-        });
+        const validTokens = await getValidToken();
+        const realmId = validTokens.realmId;
 
-        // ✅ Parse and validate dates from Supabase format
-        function parseDateTime(timeValue, dateValue) {
-            if (typeof timeValue === 'string' && timeValue.includes('T')) {
-                return new Date(timeValue);
-            }
-            if (typeof timeValue === 'string' && dateValue) {
-                const combined = `${dateValue}T${timeValue}`;
-                return new Date(combined);
-            }
-            return new Date(timeValue);
-        }
-
-        const clockInDate = parseDateTime(clockInTime, date);
-        const clockOutDate = parseDateTime(clockOutTime, date);
-
-        if (isNaN(clockInDate.getTime()) || isNaN(clockOutDate.getTime())) {
-            return res.status(400).json({
-                error: 'Invalid date/time values',
-                received: {
-                    clockInTime,
-                    clockOutTime,
-                    date,
-                    parsedClockIn: clockInDate.toString(),
-                    parsedClockOut: clockOutDate.toString()
-                }
-            });
-        }
-
-        function formatQBDate(date) {
-            // Ensure the correct timezone format
-            const formattedDate = date.toISOString().replace(/\.\d+Z$/, "Z");
-            return formattedDate;
-        }
-
-        console.log('✅ Parsed dates:', {
-            clockInDate: clockInDate.toISOString(),
-            clockOutDate: clockOutDate.toISOString()
-        });
-
-        const validTokens = await getValidToken(companyId);
         const baseUrl = oauthClient.environment === 'sandbox'
             ? 'https://sandbox-quickbooks.api.intuit.com'
             : 'https://quickbooks.api.intuit.com';
 
-        const formattedDate = date || clockInDate.toISOString().split("T")[0]; // Ensure the date format
-        const formattedStartTime = formatQBDate(clockInDate);
-        const formattedEndTime = formatQBDate(clockOutDate);
+        // Format times correctly for QuickBooks
+        const formattedDate = date || formatDateForQuickBooks(clockInTime);
+        const formattedStartTime = formatTimeForQuickBooks(clockInTime);
+        const formattedEndTime = formatTimeForQuickBooks(clockOutTime);
+        const hours = totalHours || calculateHours(clockInTime, clockOutTime);
 
-        console.log('📊 Formatted data:', {
-            formattedDate,
-            formattedStartTime,
-            formattedEndTime,
-            totalHours
-        });
-
-        // ✅ ABSOLUTE MINIMAL TimeActivity - only required fields
+        // Create TimeActivity in QuickBooks
         const timeActivityData = {
-            TxnDate: formattedDate,
             NameOf: "Employee",
             EmployeeRef: {
-                value: quickbooksId.toString()
+                value: quickbooksId
             },
+            TxnDate: formattedDate,
             StartTime: formattedStartTime,
-            EndTime: formattedEndTime
+            EndTime: formattedEndTime,
+            Hours: hours,
+            Description: `Clock In: ${formatTime(clockInTime)} - Clock Out: ${formatTime(clockOutTime)} | Employee ID: ${employeeId}`
         };
 
-        console.log('📤 Sending TimeActivity data to QuickBooks:', JSON.stringify(timeActivityData, null, 2));
+        console.log('Sending to QuickBooks:', timeActivityData);
 
+        // Post TimeActivity to QuickBooks
         const response = await axios.post(
-            `${baseUrl}/v3/company/${validTokens.realmId}/timeactivity`,
+            `${baseUrl}/v3/company/${realmId}/timeactivity`,
             timeActivityData,
             {
                 headers: {
@@ -395,39 +341,40 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             }
         );
 
-        console.log('✅ TimeActivity created successfully:', response.data.TimeActivity);
+        // Ensure JsonFiles directory exists
+        const filePath = path.resolve(__dirname, '..', 'JsonFiles');
+        if (!fs.existsSync(filePath)) {
+            fs.mkdirSync(filePath, { recursive: true });
+        }
+
+        // Save to JSON file for logging
+        fs.writeFileSync(
+            path.join(filePath, `timeactivity_${employeeId}_${new Date().getTime()}.json`),
+            JSON.stringify(response.data, null, 2)
+        );
 
         res.json({
             success: true,
             message: 'Working hours updated in QuickBooks',
-            data: response.data.TimeActivity
+            data: {
+                timeActivityId: response.data.TimeActivity.Id,
+                employeeId: employeeId,
+                quickbooksId: quickbooksId,
+                hours: hours,
+                date: formattedDate,
+                startTime: formattedStartTime,
+                endTime: formattedEndTime
+            }
         });
 
     } catch (error) {
-        console.error('❌ Full error:', error);
-        console.error('❌ Error response:', error.response?.data);
-
-        const errorDetails = error.response?.data?.Fault?.Error?.[0] || {
-            Message: error.message,
-            Detail: error.stack
-        };
-
-        console.error('Error details:', JSON.stringify(errorDetails, null, 2));
-
+        console.error('Error updating working hours:', error.response?.data || error);
         res.status(500).json({
-            error: 'Failed to update working hours',
-            details: errorDetails,
-            receivedData: {
-                quickbooksId,
-                clockInTime,
-                clockOutTime,
-                date,
-                totalHours,
-                companyId
-            }
+            error: 'Failed to update working hours in QuickBooks',
+            details: error.response?.data || error.message
         });
     }
-};
+}
 
 
 // ✅ Get Time Activities for Specific Employee (CORRECTED)
@@ -580,6 +527,80 @@ const DisconnectQuickBooks = async (req, res) => {
     }
 }
 
+// Add this to your QuickBooksServise.js
+const DeleteEmployee = async (req, res) => {
+    try {
+        const quickbooksId = req.params.id
+        const companyId = req.params.companyId
+
+        if (!companyId || !quickbooksId) {
+            return res.status(400).json({ 
+                error: 'company_id and quickbooksId are required' 
+            });
+        }
+
+        console.log('📋 Deleting Employee:', { companyId, quickbooksId });
+
+        const validTokens = await getValidToken(companyId);
+        const baseUrl = oauthClient.environment === 'sandbox'
+            ? 'https://sandbox-quickbooks.api.intuit.com'
+            : 'https://quickbooks.api.intuit.com';
+
+        // First, get the Employee to retrieve its SyncToken
+        const getResponse = await axios.get(
+            `${baseUrl}/v3/company/${validTokens.realmId}/employee/${quickbooksId}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${validTokens.access_token}`,
+                    'Accept': 'application/json'
+                },
+                params: { minorversion: 65 }
+            }
+        );
+
+        const employee = getResponse.data.Employee;
+        const syncToken = employee.SyncToken;
+
+        console.log('✅ Retrieved Employee, SyncToken:', syncToken);
+
+        // Mark employee as inactive (QuickBooks doesn't allow hard delete)
+        const inactivateResponse = await axios.post(
+            `${baseUrl}/v3/company/${validTokens.realmId}/employee`,
+            {
+                Id: quickbooksId,
+                SyncToken: syncToken,
+                GivenName: employee.GivenName,
+                FamilyName: employee.FamilyName,
+                Active: false,
+                sparse: true
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${validTokens.access_token}`,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                params: { minorversion: 65 }
+            }
+        );
+
+        console.log('✅ Employee marked as inactive successfully');
+
+        res.json({
+            success: true,
+            message: 'Employee marked as inactive in QuickBooks',
+            data: inactivateResponse.data.Employee
+        });
+
+    } catch (error) {
+        console.error('❌ Error deleting employee:', error.response?.data || error.message);
+        res.status(500).json({
+            error: 'Failed to delete employee',
+            details: error.response?.data || error.message
+        });
+    }
+};
+
 module.exports = {
     CheckAuth,
     OAuthCallbackHandler,
@@ -588,5 +609,6 @@ module.exports = {
     CheckConnectionStatus,
     DisconnectQuickBooks,
     UpdateEmployeeWorkingHours,
-    GetEmployeeTimeActivities
+    GetEmployeeTimeActivities,
+    DeleteEmployee
 };

@@ -1,6 +1,7 @@
 const OAuthClient = require('intuit-oauth');
 const axios = require('axios');
 const path = require('path');
+const fs = require('fs');
 
 const oauthClient = require("./qbClient");
 const {parsePhoneNumber} = require('../utils/phoneNumber');

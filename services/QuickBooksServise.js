@@ -329,7 +329,7 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             TxnDate: formattedDate,
             StartTime: formattedStartTime,
             EndTime: formattedEndTime,
-            Hours: hours,
+            // Hours: hours,
             Description: `Clock In: ${clockInTime} - Clock Out: ${clockOutTime} | Employee ID: ${employeeId}`
         };
 

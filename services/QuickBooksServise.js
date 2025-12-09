@@ -325,6 +325,7 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             Description: `Clock In: ${formatTime(clockInTime)} - Clock Out: ${formatTime(clockOutTime)} | Employee ID: ${employeeId}`
         };
 
+        console.log('Sending to totalHours:', totalHours);
         console.log('Sending to QuickBooks:', timeActivityData);
 
         // Post TimeActivity to QuickBooks

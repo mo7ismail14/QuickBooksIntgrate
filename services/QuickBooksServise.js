@@ -443,6 +443,7 @@ const GetEmployeeTimeActivities = async (req, res) => {
             start_time: activity.StartTime,
             end_time: activity.EndTime,
             hours: activity.Hours,
+            minutes: activity.Minutes,
             description: activity.Description || null,
             billable_status: activity.BillableStatus || null,
             created_at: activity.MetaData?.CreateTime,

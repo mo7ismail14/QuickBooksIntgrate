@@ -308,8 +308,8 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
 
         // Format times correctly for QuickBooks
         const formattedDate = date || formatDateForQuickBooks(clockInTime);
-        const formattedStartTime = formatTimeForQuickBooks(clockInTime);
-        const formattedEndTime = formatTimeForQuickBooks(clockOutTime);
+        const formattedStartTime = clockInTime||formatTimeForQuickBooks(clockInTime);
+        const formattedEndTime = clockOutTime||formatTimeForQuickBooks(clockOutTime);
         const hours = totalHours || calculateHours(clockInTime, clockOutTime);
 
         // Create TimeActivity in QuickBooks

@@ -436,6 +436,13 @@ const GetEmployeeTimeActivities = async (req, res) => {
             return sum + (parseFloat(activity.Hours) || 0);
         }, 0);
 
+        // Calculate total Minutes
+        const totalMinutes = timeActivities.reduce((sum, activity) => {
+            console.log("activity.Hours: ",activity.Minutes);
+            
+            return sum + (parseFloat(activity.Minutes) || 0);
+        }, 0);
+
         // Map activities
         const mappedActivities = timeActivities.map((activity) => ({
             id: activity.Id,
@@ -460,6 +467,7 @@ const GetEmployeeTimeActivities = async (req, res) => {
             summary: {
                 total_activities: mappedActivities.length,
                 total_hours: totalHours.toFixed(2),
+                minutes: totalMinutes,
                 date_range: {
                     start: startDate,
                     end: endDate

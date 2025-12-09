@@ -1,7 +1,5 @@
 const OAuthClient = require('intuit-oauth');
 const axios = require('axios');
-const path = require('path');
-const fs = require('fs');
 
 const oauthClient = require("./qbClient");
 const {parsePhoneNumber} = require('../utils/phoneNumber');
@@ -341,18 +339,6 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
                 },
                 params: { minorversion: 65 }
             }
-        );
-
-        // Ensure JsonFiles directory exists
-        const filePath = path.resolve(__dirname, '..', 'JsonFiles');
-        if (!fs.existsSync(filePath)) {
-            fs.mkdirSync(filePath, { recursive: true });
-        }
-
-        // Save to JSON file for logging
-        fs.writeFileSync(
-            path.join(filePath, `timeactivity_${employeeId}_${new Date().getTime()}.json`),
-            JSON.stringify(response.data, null, 2)
         );
 
         res.json({

@@ -95,7 +95,7 @@ async function getValidToken(companyId) {
                 refresh_token: tokens.refresh_token,
                 realmId: tokens.realm_id
             });
-            
+
             const authResponse = await oauthClient.refresh();
             const newTokens = {
                 access_token: authResponse.token.access_token,
@@ -103,7 +103,7 @@ async function getValidToken(companyId) {
                 realmId: tokens.realm_id,
                 expires_at: Date.now() + (authResponse.token.expires_in * 1000)
             };
-            
+
             await updateTokensInSupabase(companyId, newTokens);
             console.log('✅ Token refreshed successfully');
             return newTokens;
@@ -112,7 +112,7 @@ async function getValidToken(companyId) {
             throw new Error('Token refresh failed. Please re-authenticate.');
         }
     }
-    
+
     return {
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,

@@ -373,7 +373,6 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
     }
 }
 
-
 // ✅ Get Time Activities for Specific Employee (CORRECTED)
 const GetEmployeeTimeActivities = async (req, res) => {
     try {
@@ -427,6 +426,7 @@ const GetEmployeeTimeActivities = async (req, res) => {
             return activity.EmployeeRef?.value === quickbooksId;
         });
 
+        console.log("✅ TimeActivities: ",timeActivities);
         console.log(`✅ Filtered to ${timeActivities.length} activities for employee ${quickbooksId}`);
         
         // Calculate total hours

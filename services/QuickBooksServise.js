@@ -24,7 +24,7 @@ async function getTokensFromSupabase(companyId) {
             console.log("data====",response?.data?.data);
             return response?.data?.data;
         }
-        
+
         console.log('⚠️ No tokens found in Supabase');
         return null;
     } catch (error) {
@@ -81,6 +81,10 @@ async function getValidToken(companyId) {
 
     const expiresAt = new Date(tokens.expires_at).getTime();
     const now = Date.now();
+
+    console.log("expiresAt: ",expiresAt);
+    console.log("now: ",now);
+    
 
     // Check if token is expired
     if (now >= expiresAt) {

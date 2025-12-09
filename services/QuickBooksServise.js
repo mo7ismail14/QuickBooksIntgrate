@@ -292,6 +292,14 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             companyId
         } = req.body;
 
+        console.log("employeeId : ",employeeId);
+        console.log("quickbooksId : ",quickbooksId);
+        console.log("clockInTime : ",clockInTime);
+        console.log("clockOutTime : ",clockOutTime);
+        console.log("totalHours : ",totalHours);
+        console.log("companyId : ",companyId);
+        
+
         // Validate required fields
         if (!quickbooksId || !clockInTime || !clockOutTime) {
             return res.status(400).json({
@@ -322,7 +330,7 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             StartTime: formattedStartTime,
             EndTime: formattedEndTime,
             Hours: hours,
-            Description: `Clock In: ${formatTime(clockInTime)} - Clock Out: ${formatTime(clockOutTime)} | Employee ID: ${employeeId}`
+            Description: `Clock In: ${clockInTime} - Clock Out: ${clockOutTime} | Employee ID: ${employeeId}`
         };
 
         console.log('Sending to totalHours:', totalHours);
@@ -423,6 +431,8 @@ const GetEmployeeTimeActivities = async (req, res) => {
         
         // Calculate total hours
         const totalHours = timeActivities.reduce((sum, activity) => {
+            console.log("activity.Hours: ",activity.Hours);
+            
             return sum + (parseFloat(activity.Hours) || 0);
         }, 0);
 

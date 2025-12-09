@@ -299,7 +299,7 @@ const UpdateEmployeeWorkingHours = async (req, res) => {
             });
         }
 
-        const validTokens = await getValidToken();
+        const validTokens = await getValidToken(companyId);
         const realmId = validTokens.realmId;
 
         const baseUrl = oauthClient.environment === 'sandbox'

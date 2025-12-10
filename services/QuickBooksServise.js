@@ -640,7 +640,7 @@ const CreateEmployee = async (req, res) => {
 // Edit an employee in QuickBooks
 const EditEmployee = async (req, res) => {
     try {
-        const {quickbooksId} = req.params.quickbooksId;
+        const {quickbooksId} = req.params;
         const { companyId, employeeData } = req.body;
 
         // Validate required fields

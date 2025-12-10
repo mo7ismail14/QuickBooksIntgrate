@@ -12,7 +12,9 @@ const {
     UpdateEmployeeWorkingHours,
     ImportEmployees,
     GetEmployeeTimeActivities,
-    DeleteEmployee
+    DeleteEmployee,
+    CreateEmployee,
+    EditEmployee
 } = require('../services/QuickBooksServise')
 
 
@@ -36,6 +38,15 @@ router.post('/update-working-hours', UpdateEmployeeWorkingHours);
 // 6. Update Employee Working Hours (Clock Out)
 router.get('/employee-time-activities', GetEmployeeTimeActivities);
 
+// 7. Create Employee
+router.post('/employee', CreateEmployee);
+
+// 8. Edit Employee
+router.put('/employee/:quickbooksId', EditEmployee);
+
+// 9. Delete Employee
+router.delete('/employee/:id/:companyId', DeleteEmployee);
+
 
 //  Check Connection Status
 router.get('/status', CheckConnectionStatus);
@@ -43,6 +54,5 @@ router.get('/status', CheckConnectionStatus);
 // Disconnect QuickBooks
 router.post('/disconnect', DisconnectQuickBooks);
 
-router.delete('/employee/:id/:companyId', DeleteEmployee);
 
 module.exports = router;

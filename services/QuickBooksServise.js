@@ -539,6 +539,226 @@ const DisconnectQuickBooks = async (req, res) => {
     }
 }
 
+
+// Create an employee in QuickBooks
+const CreateEmployee = async (req, res) => {
+    try {
+        const { companyId, employeeData } = req.body;
+
+        // Validate required fields
+        if (!companyId) {
+            return res.status(400).json({ error: 'company_id is required' });
+        }
+
+        if (!employeeData?.first_name || !employeeData?.last_name) {
+            return res.status(400).json({
+                error: 'first_name and last_name are required'
+            });
+        }
+
+        console.log('📋 Creating Employee:', { companyId, employeeData });
+
+        const validTokens = await getValidToken(companyId);
+        const baseUrl = oauthClient.environment === 'sandbox'
+            ? 'https://sandbox-quickbooks.api.intuit.com'
+            : 'https://quickbooks.api.intuit.com';
+
+        // Prepare employee data for QuickBooks
+        const newEmployee = {
+            GivenName: employeeData.first_name,
+            FamilyName: employeeData.last_name
+        };
+
+        // Add optional fields if provided
+        if (employeeData.email) {
+            newEmployee.PrimaryEmailAddr = {
+                Address: employeeData.email
+            };
+        }
+
+        if (employeeData.phone_number) {
+            // Format phone number with country code if available
+            const phoneNumber = employeeData.phone_code
+                ? `${employeeData.phone_code}${employeeData.phone_number}`
+                : employeeData.phone_number;
+
+            newEmployee.PrimaryPhone = {
+                FreeFormNumber: phoneNumber
+            };
+        }
+
+        if (employeeData.display_name) {
+            newEmployee.DisplayName = employeeData.display_name;
+        }
+
+        if (employeeData.employee_number) {
+            newEmployee.EmployeeNumber = employeeData.employee_number;
+        }
+
+        console.log('📤 Sending employee data to QuickBooks:', JSON.stringify(newEmployee, null, 2));
+
+        // Create employee in QuickBooks
+        const response = await axios.post(
+            `${baseUrl}/v3/company/${validTokens.realmId}/employee`,
+            newEmployee,
+            {
+                headers: {
+                    'Authorization': `Bearer ${validTokens.access_token}`,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                params: { minorversion: 65 }
+            }
+        );
+
+        console.log('✅ Employee created successfully');
+
+        res.json({
+            success: true,
+            message: 'Employee created in QuickBooks',
+            data: {
+                quickbooks_id: response.data.Employee.Id,
+                first_name: response.data.Employee.GivenName,
+                last_name: response.data.Employee.FamilyName,
+                email: response.data.Employee.PrimaryEmailAddr?.Address || null,
+                phone_number: response.data.Employee.PrimaryPhone?.FreeFormNumber || null,
+                display_name: response.data.Employee.DisplayName || null,
+                employee_number: response.data.Employee.EmployeeNumber || null,
+                active: response.data.Employee.Active
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error creating employee:', error.response?.data || error.message);
+        res.status(500).json({
+            error: 'Failed to create employee in QuickBooks',
+            details: error.response?.data || error.message
+        });
+    }
+};
+
+// Edit an employee in QuickBooks
+const EditEmployee = async (req, res) => {
+    try {
+        const {quickbooksId} = req.params.quickbooksId;
+        const { companyId, employeeData } = req.body;
+
+        // Validate required fields
+        if (!companyId || !quickbooksId) {
+            return res.status(400).json({
+                error: 'company_id and quickbooksId are required'
+            });
+        }
+
+        console.log('📋 Editing Employee:', { companyId, quickbooksId, employeeData });
+
+        const validTokens = await getValidToken(companyId);
+        const baseUrl = oauthClient.environment === 'sandbox'
+            ? 'https://sandbox-quickbooks.api.intuit.com'
+            : 'https://quickbooks.api.intuit.com';
+
+        // First, get the Employee to retrieve its full data and SyncToken
+        const getResponse = await axios.get(
+            `${baseUrl}/v3/company/${validTokens.realmId}/employee/${quickbooksId}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${validTokens.access_token}`,
+                    'Accept': 'application/json'
+                },
+                params: { minorversion: 65 }
+            }
+        );
+
+        const existingEmployee = getResponse.data.Employee;
+        console.log('✅ Retrieved existing employee, SyncToken:', existingEmployee.SyncToken);
+
+        // Prepare updated employee data
+        const updatedEmployee = {
+            Id: quickbooksId,
+            SyncToken: existingEmployee.SyncToken,
+            sparse: true // Only update fields that are provided
+        };
+
+        // Update fields if provided
+        if (employeeData.first_name) {
+            updatedEmployee.GivenName = employeeData.first_name;
+        }
+
+        if (employeeData.last_name) {
+            updatedEmployee.FamilyName = employeeData.last_name;
+        }
+
+        if (employeeData.email !== undefined) {
+            updatedEmployee.PrimaryEmailAddr = {
+                Address: employeeData.email
+            };
+        }
+
+        if (employeeData.phone_number !== undefined) {
+            const phoneNumber = employeeData.phone_code
+                ? `${employeeData.phone_code}${employeeData.phone_number}`
+                : employeeData.phone_number;
+
+            updatedEmployee.PrimaryPhone = {
+                FreeFormNumber: phoneNumber
+            };
+        }
+
+        if (employeeData.display_name !== undefined) {
+            updatedEmployee.DisplayName = employeeData.display_name;
+        }
+
+        if (employeeData.employee_number !== undefined) {
+            updatedEmployee.EmployeeNumber = employeeData.employee_number;
+        }
+
+        if (employeeData.active !== undefined) {
+            updatedEmployee.Active = employeeData.active;
+        }
+
+        console.log('📤 Sending updated employee data to QuickBooks:', JSON.stringify(updatedEmployee, null, 2));
+
+        // Update employee in QuickBooks
+        const response = await axios.post(
+            `${baseUrl}/v3/company/${validTokens.realmId}/employee`,
+            updatedEmployee,
+            {
+                headers: {
+                    'Authorization': `Bearer ${validTokens.access_token}`,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                params: { minorversion: 65 }
+            }
+        );
+
+        console.log('✅ Employee updated successfully');
+
+        res.json({
+            success: true,
+            message: 'Employee updated in QuickBooks',
+            data: {
+                quickbooks_id: response.data.Employee.Id,
+                first_name: response.data.Employee.GivenName,
+                last_name: response.data.Employee.FamilyName,
+                email: response.data.Employee.PrimaryEmailAddr?.Address || null,
+                phone_number: response.data.Employee.PrimaryPhone?.FreeFormNumber || null,
+                display_name: response.data.Employee.DisplayName || null,
+                employee_number: response.data.Employee.EmployeeNumber || null,
+                active: response.data.Employee.Active,
+                sync_token: response.data.Employee.SyncToken
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error editing employee:', error.response?.data || error.message);
+        res.status(500).json({
+            error: 'Failed to edit employee in QuickBooks',
+            details: error.response?.data || error.message
+        });
+    }
+};
+
 // Add this to your QuickBooksServise.js
 const DeleteEmployee = async (req, res) => {
     try {
@@ -613,6 +833,8 @@ const DeleteEmployee = async (req, res) => {
     }
 };
 
+
+
 module.exports = {
     CheckAuth,
     OAuthCallbackHandler,
@@ -622,5 +844,7 @@ module.exports = {
     DisconnectQuickBooks,
     UpdateEmployeeWorkingHours,
     GetEmployeeTimeActivities,
-    DeleteEmployee
+    DeleteEmployee,
+    CreateEmployee,
+    EditEmployee
 };
